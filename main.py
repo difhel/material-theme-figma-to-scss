@@ -93,4 +93,4 @@ with open("output.css", "w") as file:
         file.write(c)
     for c in themes:
         file.write(c)
-print("Done. The colors have been written to {os.getcwd()}/output.css")
+print(f"Done. The colors have been written to {os.getcwd()}/output.css")
