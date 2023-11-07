@@ -3,10 +3,11 @@ import requests
 
 COLORS = ["primary", "secondary", "tertiary", "neutral", "neutral-variant", "error"]
 THEMES = ["light", "dark"]
-COPYRIGHT = """/* Generated automatically by material-theme-translator-figma (https://github.com/difhel/material-theme-translator-figma)
-Author: Mark Fomin aka @difhel (email material-theme-translator-figma@difhel.dev)
+COPYRIGHT = """/* Generated automatically by material-theme-figma-to-css (https://github.com/difhel/material-theme-figma-to-css)
+Author: Mark Fomin aka @difhel (email material-theme-figma-to-css@difhel.dev)
 2023
-* /"""
+* /
+"""
 
 token = input("[1] Your Figma access token: ")
 file_id = input("[2] Your Figma URL: ").split("/file/")[-1].split("/")[0]
