@@ -1,48 +1,45 @@
 import os
 import requests
+from dataclasses import dataclass
 
-COLORS = ["primary", "secondary", "tertiary", "neutral", "neutral-variant", "error"]
-THEMES = ["light", "dark"]
-COPYRIGHT = """/* Generated automatically by material-theme-figma-to-css (https://github.com/difhel/material-theme-figma-to-css)
-Author: Mark Fomin aka @difhel (email material-theme-figma-to-css@difhel.dev)
-2023
-* /
-"""
+from src.utils import read_from_stdin_or_file, request_figma_api, rgba_to_hex, get_color_name
 
-token = input("[1] Your Figma access token: ")
-file_id = input("[2] Your Figma URL: ").split("/file/")[-1].split("/")[0]
+from src.constants import COLORS, SDFUI_STYLES, THEMES, COPYRIGHT, SHAPES, BORDERS, ELEVATION
+
+token = read_from_stdin_or_file("token.txt", "[1] Your Figma access token")
+
+file_url = read_from_stdin_or_file("file_url.txt", "[2] Your Figma URL")
+file_id = file_url.split("figma.com/")[-1].split("/")[1]
+
+is_sdfui = input("Is this @nacteam/sdfui styles? (y/n): ") == "y"
+
 print("Step 1. Getting local styles list")
-r = requests.get(f"https://api.figma.com/v1/files/{file_id}/styles", headers={
-    "X-Figma-Token": token
-})
+value = request_figma_api(requests.get(
+    f"https://api.figma.com/v1/files/{file_id}/styles", headers={"X-Figma-Token": token}
+))
 
-value = r.json()
-material_colors = [] # [ [color_name: str, node_id: str] ]
+@dataclass
+class FigmaColorToken:
+    name: str
+    node_id: str
+
+
+material_colors: list[FigmaColorToken] = []  # [ [color_name: str, node_id: str] ]
 for style in value["meta"]["styles"]:
-    if not (style["style_type"] == "FILL" and style["name"].startswith("md3/")): continue
-    material_colors.append((style["name"], style["node_id"]))
+    if not (style["style_type"] == "FILL" and style["name"].startswith("md3/")):
+        continue
+    material_colors.append(FigmaColorToken(style["name"], style["node_id"]))
 
 
 print("Step 2. Getting values")
-r = requests.get(f"https://api.figma.com/v1/files/{file_id}/nodes", headers={
-    "X-Figma-Token": token
-}, params={
-    "ids": ",".join([material_colors[i][1] for i in range(len(material_colors))])
-})
+res = request_figma_api(requests.get(
+    f"https://api.figma.com/v1/files/{file_id}/nodes",
+    headers={"X-Figma-Token": token},
+    params={
+        "ids": ",".join(color.node_id for color in material_colors)
+    },
+))
 
-def rgba_to_hex(rgba_color):
-    r = int(rgba_color["r"] * 255)
-    g = int(rgba_color["g"] * 255)
-    b = int(rgba_color["b"] * 255)
-    hex_color = "#{:02x}{:02x}{:02x}".format(r, g, b)
-    
-    return hex_color
-
-def get_color_name(text):
-    index = next(i for i, c in enumerate(text) if c.isdigit())
-    return text[:index]
-
-res = r.json()
 print("Step 3. Exporting colors to CSS file...")
 styles = {}
 for node in res["nodes"]:
@@ -50,47 +47,67 @@ for node in res["nodes"]:
     color_value = rgba_to_hex(res["nodes"][node]["document"]["fills"][0]["color"])
     styles[color_name] = color_value
 
-ref_colors = {
-    color: [] for color in COLORS
-}
-theme_tokens = {
-    theme: {} for theme in THEMES
-}
+ref_colors = {color: [] for color in COLORS}
+theme_tokens = {theme: {} for theme in THEMES}
 
 for k, v in styles.items():
     if k.startswith("md3/ref/"):
         color = k.split("/")[-1]
-        color_name = get_color_name(color)
-        color_num = int(color.split(color_name)[-1])
+        color_name, color_num = get_color_name(color)
         ref_colors[color_name].append((color_num, v))
     if k.startswith("md3/sys/dark") or k.startswith("md3/sys/light"):
         color_name = k.split("/")[-1]
         color_theme = k.split("/")[-2]
+        if is_sdfui and any(color_name.startswith(x) for x in [
+            "primary", "secondary", "tertiary", "surface", "error"
+        ]):
+            # In sdfui, we need to add alpha channel to background colors
+            # 75% alpha channel is 0xBF
+            v += "bf"
         theme_tokens[color_theme][color_name] = v
 
+for theme in THEMES:
+    theme_tokens[theme] = dict(sorted(theme_tokens[theme].items(), key=lambda x: x[0]))
+
 for color in COLORS:
-    ref_colors[color] = list(sorted(ref_colors[color], key = lambda x: x[0]))
+    ref_colors[color] = list(sorted(ref_colors[color], key=lambda x: x[0]))
 
 colors = []
 for theme_type in COLORS:
-    colors.append(f"/* {theme_type.capitalize()} colors */")
-    colors.append("\nhtml {\n")
+    colors.append(f"/* {theme_type.capitalize()} colors */\n")
+    colors.append("html {\n")
     for color in ref_colors[theme_type]:
         colors.append(f"    --{theme_type}-{color[0]}: {color[1]};\n")
     colors.append("}\n\n")
 
 themes = []
 for theme_type in THEMES:
-    themes.append(f"html:has(* > .{theme_type})")
-    themes.append(" {\n")
+    themes.append(f"html:has(* > .{theme_type}) " + "{\n")
     for color_name, color_value in theme_tokens[theme_type].items():
         themes.append(f"    --{color_name}: {color_value};\n")
+    for elevation_level, elevation_value in ELEVATION[theme_type].items():
+        themes.append(f"    {elevation_level}: {elevation_value};\n")
     themes.append("}\n\n")
 
-with open("output.css", "w") as file:
+with open("output.module.scss", "w") as file:
     file.write(COPYRIGHT)
+    if is_sdfui:
+        file.write(SDFUI_STYLES)
+    file.write(":global {\n")
     for c in colors:
-        file.write(c)
+        file.write("    " + c)
     for c in themes:
-        file.write(c)
-print(f"Done. The colors have been written to {os.getcwd()}/output.css")
+        file.write("    " + c)
+    file.write("\n    /* Elevation tokens */\n")
+    file.write("    html { \n")
+    for shape, value in SHAPES.items():
+        file.write(f"        {shape}: {value};\n")
+    file.write("    }\n\n")
+    file.write("    /* Border tokens */\n")
+    file.write("    html { \n")
+    for border, value in BORDERS.items():
+        file.write(f"        {border}: {value};\n")
+    file.write("    }\n")
+    file.write("}")
+
+print(f"Done. The colors have been written to {os.getcwd()}/output.module.scss")
