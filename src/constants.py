@@ -10,7 +10,7 @@ SDFUI_STYLES = """/* ✨ @nacteam/sdfui styles ✨ */
 html {
     font-family: 'Google Sans', 'Product Sans', 'TT Norms', 'Roboto', sans-serif;
     font-size: 14pt;
-    background: var(--surface);
+    background: var(--background);
 }
 
 """
